@@ -96,8 +96,69 @@ def create_dp_model(train_sentences=None):
     Returns:
         tf.keras.Model: The compiled differentially private model for text classification.
     """
-    # Function code here
-    pass
+    max_vocab_length = 10000
+    max_length = 15  # max length our sequences will be (e.g. how many words from a Tweet does our model see?)
+    text_vectorizer = layers.TextVectorization(
+        max_tokens=max_vocab_length,  # how many words in the vocabulary (all of the different words in your text)
+        standardize="lower_and_strip_punctuation",  # how to process text
+        split="whitespace",  # how to split tokens
+        ngrams=None,  # create groups of n-words?
+        output_mode="int",  # how to map tokens to numbers
+        output_sequence_length=max_length,
+    )  # how long should the output sequence of tokens be?
+    # pad_to_max_tokens=True) # Not valid if using max_tokens=None
+
+    if train_sentences is not None:  # Fit and save the text vectorizer during training
+        text_vectorizer.adapt(train_sentences)
+        pickle.dump(
+            {
+                "config": text_vectorizer.get_config(),
+                "weights": text_vectorizer.get_weights(),
+            },
+            open("./models/tv_layer.pkl", "wb"),
+        )
+    else:  # Load the text vectorizer from disk
+        from_disk = pickle.load(open("./models/tv_layer.pkl", "rb"))
+        text_vectorizer = layers.TextVectorization.from_config(from_disk["config"])
+
+        # Call `adapt` with some dummy data (BUG in Keras)
+        text_vectorizer.adapt(tf.data.Dataset.from_tensor_slices(["xyz"]))
+        text_vectorizer.set_weights(from_disk["weights"])
+
+    embedding = layers.Embedding(
+        input_dim=max_vocab_length,  # set input shape
+        output_dim=128,  # set size of embedding vector
+        embeddings_initializer="uniform",  # default, intialize randomly
+        input_length=max_length,  # how long is each input embedding
+        name="embedding_1",
+    )
+
+    inputs = layers.Input(shape=(1,), dtype="string")
+    x = text_vectorizer(inputs)
+    x = embedding(x)
+    x = layers.GlobalAveragePooling1D()(x)
+
+    outputs = layers.Dense(1, activation="sigmoid")(x)
+
+    model = tf.keras.Model(inputs, outputs, name="model_dense")
+    l2_norm_clip = 1.2
+    noise_multiplier = 1.0
+    num_microbatches = 1
+    learning_rate = 1.0
+    optimizer = tensorflow_privacy.DPKerasAdamOptimizer(
+        l2_norm_clip=l2_norm_clip,
+        noise_multiplier=noise_multiplier,
+        num_microbatches=num_microbatches,
+        learning_rate=learning_rate,
+    )
+
+    model.compile(
+        loss="binary_crossentropy",
+        optimizer=optimizer,
+        metrics=["accuracy"],
+    )
+
+    return model
 
 
 class PrivacyMetricsCallback(tf.keras.callbacks.Callback):
