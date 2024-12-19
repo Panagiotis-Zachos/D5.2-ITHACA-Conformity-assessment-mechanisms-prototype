@@ -96,6 +96,7 @@ def create_dp_model(train_sentences=None):
     Returns:
         tf.keras.Model: The compiled differentially private model for text classification.
     """
+    # Function code here
     max_vocab_length = 10000
     max_length = 15  # max length our sequences will be (e.g. how many words from a Tweet does our model see?)
     text_vectorizer = layers.TextVectorization(
